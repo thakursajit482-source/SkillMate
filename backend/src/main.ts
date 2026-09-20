@@ -1,0 +1,84 @@
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe, Logger } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { AppModule } from './app.module';
+import { GlobalHttpExceptionFilter } from '@common/filters/http-exception.filter';
+import { TransformInterceptor } from '@common/interceptors/transform.interceptor';
+
+async function bootstrap() {
+  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule);
+
+  // Configuration
+  const port = process.env.PORT || 3000;
+  const apiPrefix = process.env.API_PREFIX || 'api/v1';
+
+  // Global Prefix
+  app.setGlobalPrefix(apiPrefix);
+
+  // CORS
+  const frontendUrl = process.env.FRONTEND_URL;
+  app.enableCors({
+    origin: frontendUrl
+      ? frontendUrl.split(',').map((url) => url.trim())
+      : true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    credentials: true,
+  });
+
+  // Global Pipes, Filters & Interceptors
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+    }),
+  );
+  app.useGlobalFilters(new GlobalHttpExceptionFilter());
+  app.useGlobalInterceptors(new TransformInterceptor());
+
+  // Swagger Documentation Setup
+  const config = new DocumentBuilder()
+    .setTitle('SkillMate API')
+    .setDescription(
+      'SkillMate Modular Monolith Backend API — Cross-college student network for MMR. Provides endpoints for Auth, Verification, Profiles, Discovery, Requests, Offers, Tasks, Chat, Reputation, and Safety.',
+    )
+    .setVersion('1.0.0-mvp')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'Authorization',
+        description: 'Enter your JWT access token in the format: Bearer <token>',
+        in: 'header',
+      },
+      'JWT-auth',
+    )
+    .addTag('Health', 'System and database health indicators')
+    .addTag('Auth', 'Authentication, registration, login and session tokens')
+    .addTag('Colleges', 'MMR college directory and search')
+    .addTag('Verification', 'Student identity and college verification lifecycle')
+    .addTag('Profiles', 'Student public and private profiles, skills, and availability')
+    .addTag('Discovery', 'Proximity and skill-based discovery of peers and requests')
+    .addTag('Requests', 'Typed collaborative requests (Paid, Skill Exchange, Social)')
+    .addTag('Offers', 'Proposals and counter-terms on open requests')
+    .addTag('Tasks', 'Task lifecycle, term confirmation, completion, and cancellation')
+    .addTag('Chat', '1:1 messaging threads scoped to request/offer relationships')
+    .addTag('Reputation', 'Behavioral ratings, tags, and peer skill endorsements')
+    .addTag('Safety', 'Safety reporting, user blocking, and recourse')
+    .addTag('Admin', 'Moderation queues for verification and user safety reports')
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
+
+  await app.listen(port);
+  logger.log(`🚀 SkillMate Backend successfully started on http://localhost:${port}/${apiPrefix}`);
+  logger.log(`📚 Swagger API Documentation available at http://localhost:${port}/api/docs`);
+}
+
+bootstrap();

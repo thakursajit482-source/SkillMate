@@ -1,0 +1,555 @@
+// =======================================================
+// SkillMate Prisma Schema
+// PRD Version: 1.0 (MVP) - Modular Monolith
+// Database: PostgreSQL
+// =======================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------
+// Enums
+// -------------------------------------------------------
+
+enum UserRole {
+  STUDENT
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum SkillLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum RequestType {
+  PAID
+  SKILL_EXCHANGE
+  SOCIAL
+}
+
+enum RequestStatus {
+  OPEN
+  MATCHED
+  CLOSED
+  CANCELLED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+enum TaskStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ReportCategory {
+  NO_SHOW
+  HARASSMENT
+  FAKE_PROFILE
+  SCAM
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  RESOLVED
+}
+
+// -------------------------------------------------------
+// 1. User & Authentication
+// -------------------------------------------------------
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  phone        String     @unique @db.VarChar(20)
+  email        String     @unique @db.VarChar(255)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  name         String     @db.VarChar(100)
+  role         UserRole   @default(STUDENT)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  verification           CollegeVerification?
+  profile                Profile?
+  requests               Request[]              @relation("Requester")
+  targetedRequests       Request[]              @relation("TargetUser")
+  offers                 Offer[]                @relation("OfferingUser")
+  tasksAsRequester       Task[]                 @relation("TaskRequester")
+  tasksAsHelper          Task[]                 @relation("TaskHelper")
+  tasksCancelled         Task[]                 @relation("TaskCancelledBy")
+  chatThreadsAsA         ChatThread[]           @relation("ParticipantA")
+  chatThreadsAsB         ChatThread[]           @relation("ParticipantB")
+  messagesSent           Message[]              @relation("MessageSender")
+  ratingsGiven           Rating[]               @relation("RatingsGiven")
+  ratingsReceived        Rating[]               @relation("RatingsReceived")
+  endorsementsGiven      Endorsement[]          @relation("Endorser")
+  endorsementsReceived   Endorsement[]          @relation("Endorsee")
+  reportsFiled           Report[]               @relation("Reporter")
+  reportsReceived        Report[]               @relation("ReportedUser")
+  reportsResolved        Report[]               @relation("ReportResolver")
+  verificationsReviewed  CollegeVerification[]  @relation("VerificationReviewer")
+  blockedUsers           Block[]                @relation("Blocker")
+  blockedByUsers         Block[]                @relation("Blocked")
+  notifications          Notification[]         @relation("UserNotifications")
+
+  @@index([phone])
+  @@index([email])
+  @@index([status])
+  @@map("users")
+}
+
+// -------------------------------------------------------
+// 2. College Directory
+// -------------------------------------------------------
+
+model College {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @unique @db.VarChar(255)
+  city         String   @default("Mumbai") @db.VarChar(100)
+  area         String   @db.VarChar(100)
+  emailDomains String[] @default([]) @map("email_domains")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  verifications CollegeVerification[]
+
+  @@index([name])
+  @@index([area])
+  @@map("colleges")
+}
+
+// -------------------------------------------------------
+// 3. College Verification
+// -------------------------------------------------------
+
+model CollegeVerification {
+  id              String             @id @default(uuid()) @db.Uuid
+  userId          String             @unique @map("user_id") @db.Uuid
+  collegeId       String             @map("college_id") @db.Uuid
+  department      String             @db.VarChar(100)
+  yearOfStudy     Int                @map("year_of_study")
+  enrollmentId    String             @map("enrollment_id") @db.VarChar(100)
+  collegeEmail    String?            @unique @map("college_email") @db.VarChar(255)
+  idDocumentRef   String?            @map("id_document_ref") @db.VarChar(500)
+  status          VerificationStatus @default(UNVERIFIED)
+  rejectionReason String?            @map("rejection_reason") @db.Text
+  reviewedById    String?            @map("reviewed_by_id") @db.Uuid
+  reviewedAt      DateTime?          @map("reviewed_at") @db.Timestamptz(6)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  college    College  @relation(fields: [collegeId], references: [id])
+  reviewedBy User?    @relation("VerificationReviewer", fields: [reviewedById], references: [id])
+
+  @@unique([collegeId, enrollmentId])
+  @@index([status])
+  @@map("college_verifications")
+}
+
+// -------------------------------------------------------
+// 4. Student Profile
+// -------------------------------------------------------
+
+model Profile {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @unique @map("user_id") @db.Uuid
+  photoUrl          String?  @map("photo_url") @db.VarChar(500)
+  bio               String?  @db.VarChar(500)
+  approximateArea   String   @default("") @map("approximate_area") @db.VarChar(100)
+  latitudeBucket    Float?   @map("latitude_bucket")
+  longitudeBucket   Float?   @map("longitude_bucket")
+  hourlyRate        Decimal? @map("hourly_rate") @db.Decimal(10, 2)
+  completenessScore Int      @default(0) @map("completeness_score")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skills         ProfileSkill[]
+  availabilities Availability[]
+
+  @@index([approximateArea])
+  @@map("profiles")
+}
+
+// -------------------------------------------------------
+// 5. Skill Taxonomy
+// -------------------------------------------------------
+
+model Skill {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(100)
+  category  String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  profileSkills        ProfileSkill[]
+  requestsAsSkill      Request[]      @relation("RequestSkill")
+  requestsAsDesired    Request[]      @relation("RequestDesiredSkill")
+  endorsements         Endorsement[]
+
+  @@index([category])
+  @@map("skills")
+}
+
+// -------------------------------------------------------
+// 6. Profile Skill (Join Table)
+// -------------------------------------------------------
+
+model ProfileSkill {
+  id              String     @id @default(uuid()) @db.Uuid
+  profileId       String     @map("profile_id") @db.Uuid
+  skillId         String     @map("skill_id") @db.Uuid
+  level           SkillLevel @default(BEGINNER)
+  isVerifiedSkill Boolean    @default(false) @map("is_verified_skill")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  skill   Skill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, skillId])
+  @@index([skillId, level])
+  @@map("profile_skills")
+}
+
+// -------------------------------------------------------
+// 7. Availability Windows
+// -------------------------------------------------------
+
+model Availability {
+  id           String    @id @default(uuid()) @db.Uuid
+  profileId    String    @map("profile_id") @db.Uuid
+  dayOfWeek    Int?      @map("day_of_week")
+  specificDate DateTime? @map("specific_date") @db.Date
+  startTime    String    @map("start_time") @db.VarChar(10)
+  endTime      String    @map("end_time") @db.VarChar(10)
+  isRecurring  Boolean   @default(true) @map("is_recurring")
+  activity     String?   @db.VarChar(150)
+  details      String?   @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("availabilities")
+}
+
+// -------------------------------------------------------
+// 8. Typed Requests
+// -------------------------------------------------------
+
+model Request {
+  id                 String        @id @default(uuid()) @db.Uuid
+  requesterId        String        @map("requester_id") @db.Uuid
+  targetUserId       String?       @map("target_user_id") @db.Uuid
+  type               RequestType
+  title              String        @db.VarChar(200)
+  description        String        @db.Text
+  skillId            String?       @map("skill_id") @db.Uuid
+  budget             Decimal?      @db.Decimal(10, 2)
+  desiredSkillId     String?       @map("desired_skill_id") @db.Uuid
+  activityTag        String?       @map("activity_tag") @db.VarChar(100)
+  availabilityWindow Json          @map("availability_window")
+  approximateArea    String        @map("approximate_area") @db.VarChar(100)
+  latitudeBucket     Float?        @map("latitude_bucket")
+  longitudeBucket    Float?        @map("longitude_bucket")
+  status             RequestStatus @default(OPEN)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  requester    User         @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  targetUser   User?        @relation("TargetUser", fields: [targetUserId], references: [id])
+  skill        Skill?       @relation("RequestSkill", fields: [skillId], references: [id])
+  desiredSkill Skill?       @relation("RequestDesiredSkill", fields: [desiredSkillId], references: [id])
+  offers       Offer[]
+  tasks        Task[]
+  chatThreads  ChatThread[]
+
+  @@index([requesterId])
+  @@index([targetUserId])
+  @@index([status])
+  @@index([type])
+  @@index([skillId])
+  @@index([approximateArea])
+  @@map("requests")
+}
+
+// -------------------------------------------------------
+// 9. Offers
+// -------------------------------------------------------
+
+model Offer {
+  id             String      @id @default(uuid()) @db.Uuid
+  requestId      String      @map("request_id") @db.Uuid
+  offeringUserId String      @map("offering_user_id") @db.Uuid
+  message        String?     @db.Text
+  counterTerms   Json?       @map("counter_terms")
+  status         OfferStatus @default(PENDING)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  request      Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  offeringUser User    @relation("OfferingUser", fields: [offeringUserId], references: [id], onDelete: Cascade)
+  task         Task?
+
+  @@index([requestId])
+  @@index([offeringUserId])
+  @@index([status])
+  @@map("offers")
+}
+
+// -------------------------------------------------------
+// 10. Tasks (Agreed Collaborations)
+// -------------------------------------------------------
+
+model Task {
+  id                  String      @id @default(uuid()) @db.Uuid
+  requestId           String      @map("request_id") @db.Uuid
+  offerId             String      @unique @map("offer_id") @db.Uuid
+  requesterId         String      @map("requester_id") @db.Uuid
+  helperId            String      @map("helper_id") @db.Uuid
+  agreedTerms         Json        @map("agreed_terms")
+  status              TaskStatus  @default(PENDING)
+  requesterCompleted  Boolean     @default(false) @map("requester_completed")
+  helperCompleted     Boolean     @default(false) @map("helper_completed")
+  completionTimeoutAt DateTime?   @map("completion_timeout_at") @db.Timestamptz(6)
+  statusHistory       Json        @default("[]") @map("status_history")
+  cancelReason        String?     @map("cancel_reason") @db.Text
+  cancelledById       String?     @map("cancelled_by_id") @db.Uuid
+  completedAt         DateTime?   @map("completed_at") @db.Timestamptz(6)
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  request      Request       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  offer        Offer         @relation(fields: [offerId], references: [id])
+  requester    User          @relation("TaskRequester", fields: [requesterId], references: [id])
+  helper       User          @relation("TaskHelper", fields: [helperId], references: [id])
+  cancelledBy  User?         @relation("TaskCancelledBy", fields: [cancelledById], references: [id])
+  ratings      Rating[]
+  endorsements Endorsement[]
+  reports      Report[]
+
+  @@index([requestId])
+  @@index([requesterId])
+  @@index([helperId])
+  @@index([status])
+  @@map("tasks")
+}
+
+// -------------------------------------------------------
+// 11. Chat Threads (1:1 Scoped to Request/Offer)
+// -------------------------------------------------------
+
+model ChatThread {
+  id             String   @id @default(uuid()) @db.Uuid
+  requestId      String   @map("request_id") @db.Uuid
+  participantAId String   @map("participant_a_id") @db.Uuid
+  participantBId String   @map("participant_b_id") @db.Uuid
+  isClosed       Boolean  @default(false) @map("is_closed")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  request      Request   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  participantA User      @relation("ParticipantA", fields: [participantAId], references: [id])
+  participantB User      @relation("ParticipantB", fields: [participantBId], references: [id])
+  messages     Message[]
+
+  @@unique([requestId, participantAId, participantBId])
+  @@index([participantAId])
+  @@index([participantBId])
+  @@map("chat_threads")
+}
+
+// -------------------------------------------------------
+// 12. Chat Messages
+// -------------------------------------------------------
+
+model Message {
+  id          String    @id @default(uuid()) @db.Uuid
+  threadId    String    @map("thread_id") @db.Uuid
+  senderId    String    @map("sender_id") @db.Uuid
+  content     String    @db.Text
+  sentAt      DateTime  @default(now()) @map("sent_at") @db.Timestamptz(6)
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(6)
+  readAt      DateTime? @map("read_at") @db.Timestamptz(6)
+
+  // Relations
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender User       @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([threadId, sentAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+// -------------------------------------------------------
+// 13. Ratings (Two-Way, 1-5 Stars + Tags)
+// -------------------------------------------------------
+
+model Rating {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  raterId   String   @map("rater_id") @db.Uuid
+  rateeId   String   @map("ratee_id") @db.Uuid
+  score     Int
+  tags      Json     @default("[]")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  task  Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  rater User @relation("RatingsGiven", fields: [raterId], references: [id])
+  ratee User @relation("RatingsReceived", fields: [rateeId], references: [id])
+
+  @@unique([taskId, raterId])
+  @@index([rateeId])
+  @@map("ratings")
+}
+
+// -------------------------------------------------------
+// 14. Peer Skill Endorsements
+// -------------------------------------------------------
+
+model Endorsement {
+  id         String   @id @default(uuid()) @db.Uuid
+  endorserId String   @map("endorser_id") @db.Uuid
+  endorseeId String   @map("endorsee_id") @db.Uuid
+  skillId    String   @map("skill_id") @db.Uuid
+  taskId     String?  @map("task_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  endorser User  @relation("Endorser", fields: [endorserId], references: [id])
+  endorsee User  @relation("Endorsee", fields: [endorseeId], references: [id])
+  skill    Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  task     Task? @relation(fields: [taskId], references: [id])
+
+  @@unique([endorserId, endorseeId, skillId])
+  @@index([endorseeId])
+  @@map("endorsements")
+}
+
+// -------------------------------------------------------
+// 15. Reports (Safety Tickets)
+// -------------------------------------------------------
+
+model Report {
+  id              String         @id @default(uuid()) @db.Uuid
+  reporterId      String         @map("reporter_id") @db.Uuid
+  reportedUserId  String         @map("reported_user_id") @db.Uuid
+  taskId          String?        @map("task_id") @db.Uuid
+  category        ReportCategory
+  description     String         @db.Text
+  evidenceUrl     String?        @map("evidence_url") @db.VarChar(500)
+  status          ReportStatus   @default(OPEN)
+  resolvedById    String?        @map("resolved_by_id") @db.Uuid
+  resolvedAt      DateTime?      @map("resolved_at") @db.Timestamptz(6)
+  resolutionNotes String?        @map("resolution_notes") @db.Text
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  reporter     User  @relation("Reporter", fields: [reporterId], references: [id])
+  reportedUser User  @relation("ReportedUser", fields: [reportedUserId], references: [id])
+  task         Task? @relation(fields: [taskId], references: [id])
+  resolvedBy   User? @relation("ReportResolver", fields: [resolvedById], references: [id])
+
+  @@index([reportedUserId])
+  @@index([status])
+  @@map("reports")
+}
+
+// -------------------------------------------------------
+// 16. Blocks (Unilateral & Silent)
+// -------------------------------------------------------
+
+model Block {
+  id        String   @id @default(uuid()) @db.Uuid
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("blocks")
+}
+
+// -------------------------------------------------------
+// 17. Notifications
+// -------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  type      String   @db.VarChar(50)
+  payload   Json
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  user User @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+// -------------------------------------------------------
+// 18. Embeddings Storage & Cache
+// -------------------------------------------------------
+
+model Embedding {
+  id         String   @id @default(uuid()) @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(50) // "USER_PROFILE", "REQUEST"
+  entityId   String   @map("entity_id") @db.Uuid
+  content    String   @db.Text
+  vector     Float[]  @map("vector")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([entityType, entityId])
+  @@index([entityType])
+  @@map("embeddings")
+}
