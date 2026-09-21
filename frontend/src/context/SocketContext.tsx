@@ -12,6 +12,16 @@ const SocketContext = createContext<SocketContextType>({
   isConnected: false,
 });
 
+const rawSocketUrl = (import.meta.env.VITE_SOCKET_URL as string | undefined)?.trim();
+const normalizeSocketUrl = (url?: string): string => {
+  if (!url) {
+    return import.meta.env.DEV ? '' : 'http://localhost:3000';
+  }
+  return url.replace(/\/+$/, '').replace(/\/api(\/v\d+)?$/, '');
+};
+
+const SOCKET_BASE_URL = normalizeSocketUrl(rawSocketUrl);
+
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, user } = useAuth();
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -27,7 +37,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    const newSocket = io('/chat', {
+    const socketEndpoint = SOCKET_BASE_URL ? `${SOCKET_BASE_URL}/chat` : '/chat';
+    const newSocket = io(socketEndpoint, {
       auth: {
         token: `Bearer ${token}`,
       },

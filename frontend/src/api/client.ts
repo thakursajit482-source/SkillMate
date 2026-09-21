@@ -24,7 +24,16 @@ import {
   HybridMatchResponse,
 } from '../types';
 
-const API_BASE_URL = '/api/v1';
+const rawApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const normalizeApiUrl = (url?: string): string => {
+  if (!url) {
+    return import.meta.env.DEV ? '/api/v1' : 'http://localhost:3000/api/v1';
+  }
+  const clean = url.replace(/\/+$/, '');
+  return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+};
+
+const API_BASE_URL = normalizeApiUrl(rawApiUrl);
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
