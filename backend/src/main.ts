@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { GlobalHttpExceptionFilter } from '@common/filters/http-exception.filter';
 import { TransformInterceptor } from '@common/interceptors/transform.interceptor';
@@ -10,18 +11,57 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Configuration
-  const port = process.env.PORT || 3000;
-  const apiPrefix = process.env.API_PREFIX || 'api/v1';
+  const configService = app.get(ConfigService);
+  const port = configService.get<number>('PORT') || process.env.PORT || 3000;
+  const apiPrefix = configService.get<string>('API_PREFIX') || process.env.API_PREFIX || 'api/v1';
 
   // Global Prefix
   app.setGlobalPrefix(apiPrefix);
 
-  // CORS
-  const frontendUrl = process.env.FRONTEND_URL;
+  // CORS Configuration
+  const rawFrontendUrl =
+    configService.get<string>('FRONTEND_URL') || process.env.FRONTEND_URL;
+
+  const localOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+  ];
+
+  const configuredOrigins = rawFrontendUrl
+    ? rawFrontendUrl
+        .split(',')
+        .map((url) => url.trim().replace(/^['"]|['"]$/g, '').replace(/\/+$/, ''))
+        .filter(Boolean)
+    : [];
+
+  const allowedOrigins = Array.from(
+    new Set([
+      ...configuredOrigins,
+      ...localOrigins,
+      'https://skill-mate-seven.vercel.app',
+    ]),
+  );
+
   app.enableCors({
-    origin: frontendUrl
-      ? frontendUrl.split(',').map((url) => url.trim())
-      : true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+      if (
+        allowedOrigins.includes(normalizedOrigin) ||
+        /^https:\/\/skill-mate[a-z0-9-]*\.vercel\.app$/.test(normalizedOrigin)
+      ) {
+        return callback(null, true);
+      }
+
+      logger.warn(`Blocked by CORS: origin '${origin}' is not in allowed list`);
+      return callback(null, false);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     credentials: true,
   });
