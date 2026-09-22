@@ -834,3 +834,18 @@ SkillMate was developed as a verified, campus-aware student collaboration networ
 ## 📄 License
 
 This project currently has no open-source license specified (`UNLICENSED`). All rights reserved.
+
+---
+
+## 👨‍💻 Project Creator
+
+**Sajit Thakur**  
+BE Computer Science Engineering (AI/ML)
+
+GitHub: [@thakursajit482-source](https://github.com/thakursajit482-source)
+
+## 📄 Project Ownership
+
+© 2026 Sajit Thakur. All rights reserved.
+
+SkillMate is currently an unlicensed project. The source code is not granted open-source redistribution or commercial-use rights.
